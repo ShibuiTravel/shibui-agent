@@ -1,0 +1,44 @@
+{
+  "name": "shibui-agent",
+  "version": "0.72.2",
+  "description": "Launcher alias for the Shibui agent CLI.",
+  "type": "module",
+  "bin": {
+    "shibui-agent": "bin/shibui-agent.js"
+  },
+  "files": [
+    "bin",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "check": "node --check bin/shibui-agent.js",
+    "smoke": "node bin/shibui-agent.js --version"
+  },
+  "dependencies": {
+    "@shibuitravel/agent": "^0.72.2"
+  },
+  "engines": {
+    "node": ">=20.6.0"
+  },
+  "keywords": [
+    "shibui",
+    "agent",
+    "ai",
+    "cli",
+    "coding-agent"
+  ],
+  "author": "Shibui Travel",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ShibuiTravel/shibui-agent.git"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "bugs": {
+    "url": "https://github.com/ShibuiTravel/shibui-agent/issues"
+  },
+  "homepage": "https://github.com/ShibuiTravel/shibui-agent#readme"
+}
