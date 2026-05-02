@@ -3,15 +3,21 @@ name: Publish npm Package
 on:
   release:
     types: [published]
+  schedule:
+    - cron: "17 * * * *"
   workflow_dispatch:
     inputs:
       ref:
-        description: "Git ref to publish"
-        required: true
+        description: "Git ref to publish. Leave empty to sync to the latest @shibuitravel/agent."
+        required: false
+        type: string
+      agent_version:
+        description: "Specific @shibuitravel/agent version to mirror. Leave empty for npm latest."
+        required: false
         type: string
 
 permissions:
-  contents: read
+  contents: write
   id-token: write
 
 env:
@@ -31,8 +37,10 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "release" ]; then
             echo "ref=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
-          else
+          elif [ -n "${{ inputs.ref }}" ]; then
             echo "ref=${{ inputs.ref }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=main" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Checkout
@@ -50,14 +58,84 @@ jobs:
       - name: Use npm 11
         run: npm install -g npm@11
 
+      - name: Resolve target agent version
+        id: target
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            version=$(node -p "require('./package.json').version")
+          elif [ -n "${{ inputs.agent_version }}" ]; then
+            version="${{ inputs.agent_version }}"
+          else
+            version=$(npm view @shibuitravel/agent dist-tags.latest)
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Check whether shim version is already published
+        id: published
+        run: |
+          if npm view "shibui-agent@${{ steps.target.outputs.version }}" version >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Sync shim metadata
+        if: steps.published.outputs.exists == 'false'
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from "node:fs";
+
+          const version = process.env.TARGET_AGENT_VERSION;
+          const packagePath = "package.json";
+          const pkg = JSON.parse(fs.readFileSync(packagePath, "utf8"));
+
+          pkg.version = version;
+          pkg.dependencies["@shibuitravel/agent"] = `^${version}`;
+
+          fs.writeFileSync(packagePath, `${JSON.stringify(pkg, null, 2)}\n`);
+          NODE
+          npm install --package-lock-only
+        env:
+          TARGET_AGENT_VERSION: ${{ steps.target.outputs.version }}
+
       - name: Install dependencies
+        if: steps.published.outputs.exists == 'false'
         run: npm ci
 
       - name: Check
+        if: steps.published.outputs.exists == 'false'
         run: npm run check
 
       - name: Smoke
+        if: steps.published.outputs.exists == 'false'
         run: npm run smoke
 
+      - name: Commit mirrored version
+        if: steps.published.outputs.exists == 'false' && github.event_name != 'release'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add package.json package-lock.json
+          if ! git diff --cached --quiet; then
+            git commit -m "Publish shibui-agent ${{ steps.target.outputs.version }}"
+            git push origin HEAD:main
+          fi
+
+      - name: Tag mirrored version
+        if: steps.published.outputs.exists == 'false' && github.event_name != 'release'
+        run: |
+          tag="v${{ steps.target.outputs.version }}"
+          if ! git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
+            git tag "$tag"
+            git push origin "$tag"
+          fi
+
       - name: Publish shibui-agent
+        if: steps.published.outputs.exists == 'false'
         run: npm publish --access public
+
+      - name: Skip already-published version
+        if: steps.published.outputs.exists == 'true'
+        run: echo "shibui-agent@${{ steps.target.outputs.version }} is already published."
